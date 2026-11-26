@@ -1,0 +1,197 @@
+
+name: mini
+
+on:
+    push:
+        branches: [src]
+    workflow_dispatch:
+        inputs:
+            full_rebuild:
+                description: re-minify every CSS/JS file (ignore manifest)
+                type: boolean
+                default: false
+
+permissions:
+    contents: write
+
+concurrency:
+    group: minify-bundle
+    cancel-in-progress: false
+
+env:
+    TARGET_BRANCH: bundle
+    CLEAN_CSS_OPTS: "-O2"
+    TERSER_OPTS: "--compress --mangle"
+    MANIFEST: .minify-manifest.json
+
+jobs:
+    minify-and-publish:
+        runs-on: ubuntu-latest
+        steps:
+            - name: checkout src
+              uses: actions/checkout@v7
+              with:
+                  ref: src
+                  path: source
+
+            - name: setup node
+              uses: actions/setup-node@v7
+              with:
+                  node-version: 20
+
+            - name: install minifiers
+              run: npm install -g clean-css-cli terser
+
+            - name: minify and publish
+              env:
+                  FULL_REBUILD: ${{ inputs.full_rebuild }}
+              run: |
+                  set -euo pipefail
+
+                  SRC="$GITHUB_WORKSPACE/source"
+                  OUT="$GITHUB_WORKSPACE/out"
+                  TOOLCHAIN="clean-css $(cleancss --version) $CLEAN_CSS_OPTS | terser $(terser --version) $TERSER_OPTS"
+
+                  cd "$SRC"
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+                  if git ls-remote --exit-code --heads origin "$TARGET_BRANCH" >/dev/null 2>&1; then
+                    git fetch --depth=1 origin "$TARGET_BRANCH"
+                    git worktree add -B "$TARGET_BRANCH" "$OUT" FETCH_HEAD
+                  else
+                    echo "branch $TARGET_BRANCH doesn't exist yet, creating it"
+                    git worktree add --detach "$OUT"
+                    git -C "$OUT" checkout --orphan "$TARGET_BRANCH"
+                    git -C "$OUT" rm -rf --quiet .
+                  fi
+
+                  OLD=/tmp/old-manifest.json
+                  echo '{"toolchain":"","files":{}}' > "$OLD"
+                  if [ -f "$OUT/$MANIFEST" ] && [ "${FULL_REBUILD:-false}" != "true" ] \
+                     && [ "$(jq -r .toolchain "$OUT/$MANIFEST" 2>/dev/null || true)" = "$TOOLCHAIN" ]; then
+                    cp "$OUT/$MANIFEST" "$OLD"
+                  else
+                    echo "no usable manifest, rebuilding every CSS/JS file"
+                  fi
+
+                  declare -A old_hash=()
+                  while IFS=$'\t' read -r k v; do
+                    old_hash["$k"]="$v"
+                  done < <(jq -r '.files | to_entries[] | [.key, .value] | @tsv' "$OLD")
+
+                  rsync -a --delete \
+                    --exclude='/.git' --exclude='/.github' --exclude='node_modules' \
+                    --exclude="/$MANIFEST" \
+                    --include='*.min.css' --include='*.min.js' \
+                    --exclude='*.css' --exclude='*.js' \
+                    "$SRC/" "$OUT/"
+
+                  css_all="$(find . -type f -name '*.css' ! -name '*.min.css' \
+                               -not -path './.git/*' -not -path './.github/*' -not -path '*/node_modules/*' -print0 \
+                             | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+
+                  : > /tmp/new-manifest.tsv
+                  minified=0; skipped=0; removed=0; failed=0
+                  failed_list=""
+
+                  while IFS= read -r -d '' f; do
+                    rel="${f#./}"
+                    hash="$(sha256sum "$f" | cut -d' ' -f1)"
+                    case "$rel" in
+                      *.css) hash="$(printf '%s%s' "$hash" "$css_all" | sha256sum | cut -d' ' -f1)" ;;
+                    esac
+
+                    if [ "${old_hash[$rel]:-}" = "$hash" ] && [ -f "$OUT/$rel" ]; then
+                      printf '%s\t%s\n' "$rel" "$hash" >> /tmp/new-manifest.tsv
+                      skipped=$((skipped + 1))
+                      continue
+                    fi
+
+                    echo "minifying $rel"
+                    mkdir -p "$OUT/$(dirname "$rel")"
+
+                    ok=true
+                    case "$rel" in
+                      *.css) cleancss $CLEAN_CSS_OPTS "$f" -o "$OUT/$rel" || ok=false ;;
+                      *.js)  terser "$f" $TERSER_OPTS --output "$OUT/$rel" || ok=false ;;
+                    esac
+
+                    if [ "$ok" = true ]; then
+                      printf '%s\t%s\n' "$rel" "$hash" >> /tmp/new-manifest.tsv
+                      minified=$((minified + 1))
+                    else
+                      echo "::warning file=$rel::minify failed, published the original file instead"
+                      cp "$f" "$OUT/$rel"
+                      failed=$((failed + 1))
+                      failed_list="${failed_list}- \`$rel\`"$'\n'
+                    fi
+                  done < <(find . -type f \( -name '*.css' -o -name '*.js' \) \
+                             ! -name '*.min.css' ! -name '*.min.js' \
+                             -not -path './.git/*' -not -path './.github/*' \
+                             -not -path '*/node_modules/*' -print0)
+
+                  while IFS= read -r -d '' f; do
+                    rel="${f#./}"
+                    if [ ! -f "$SRC/$rel" ]; then
+                      echo "removing $rel"
+                      rm "$OUT/$rel"
+                      removed=$((removed + 1))
+                    fi
+                  done < <(cd "$OUT" && find . -type f \( -name '*.css' -o -name '*.js' \) \
+                             ! -name '*.min.css' ! -name '*.min.js' \
+                             -not -path './.git/*' -print0)
+
+                  LC_ALL=C sort /tmp/new-manifest.tsv | jq -Rn -S --arg tc "$TOOLCHAIN" \
+                    '{toolchain: $tc, files: ([inputs | split("\t") | {key: .[0], value: .[1]}] | from_entries)}' \
+                    > "$OUT/$MANIFEST"
+
+                  cd "$OUT"
+                  git add -A
+
+                  if git diff --cached --quiet; then
+                    echo "nothing changed, no commit"
+                    echo "### aBit: nothing to publish ($skipped files already up to date)" >> "$GITHUB_STEP_SUMMARY"
+                    exit 0
+                  fi
+
+                  git commit -q -m "minify abit: $minified rebuilt, $skipped unchanged, $removed removed, $failed failed (src@${GITHUB_SHA::7})"
+
+                  if git rev-parse --verify -q HEAD~1 >/dev/null; then
+                    git diff --name-only --no-renames HEAD~1 HEAD > /tmp/changed-all.txt
+                  else
+                    git ls-tree -r --name-only HEAD > /tmp/changed-all.txt
+                  fi
+                  grep -vxF "$MANIFEST" /tmp/changed-all.txt > /tmp/changed.txt || true
+
+                  git -C "$SRC" push origin "$TARGET_BRANCH"
+
+                  purged=0; purge_failed=0
+                  if [ -s /tmp/changed.txt ]; then
+                    rm -f /tmp/purge-batch-*
+                    split -l 20 /tmp/changed.txt /tmp/purge-batch-
+                    for batch in /tmp/purge-batch-*; do
+                      n="$(wc -l < "$batch")"
+                      body="$(jq -Rn --arg p "/gh/${GITHUB_REPOSITORY}@${TARGET_BRANCH}/" \
+                        '{path: [inputs | select(length > 0) | $p + .]}' < "$batch")"
+                      if curl -fsS --retry 3 --retry-delay 2 --max-time 30 \
+                           -X POST -H 'Content-Type: application/json' \
+                           -d "$body" https://purge.jsdelivr.net/ >/tmp/purge-res.json 2>/tmp/purge-err.txt; then
+                        purged=$((purged + n))
+                      else
+                        echo "::warning::jsDelivr purge failed for a batch of $n files: $(cat /tmp/purge-err.txt)"
+                        purge_failed=$((purge_failed + n))
+                      fi
+                    done
+                  fi
+
+                  {
+                    echo "### aBit: $minified rebuilt, $skipped unchanged, $removed removed, $failed failed"
+                    echo ""
+                    echo "jsDelivr purge: $purged purged, $purge_failed failed"
+                    if [ "$failed" -gt 0 ]; then
+                      echo ""
+                      echo "Failed to minify (published unminified, will retry next run):"
+                      echo "$failed_list"
+                    fi
+                  } >> "$GITHUB_STEP_SUMMARY"
