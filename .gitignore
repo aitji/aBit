@@ -1,6 +1,6 @@
 *.zip
 * copy*
 
-*.og.js
+# *.og.js
 demo/*
 test/*
