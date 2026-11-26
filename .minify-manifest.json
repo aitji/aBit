@@ -1,0 +1,28 @@
+{
+  "files": {
+    "dye/base/additional.css": "f2ca2ff0ce30f13f7636664f1410c3a3f0b71690086b125924417b9918a3aa67",
+    "dye/base/reset.css": "031f85bf33cdf54ab275345aafab65063b0b4a8fc5432cf6d77f8305006e5d6c",
+    "dye/base/tokens.css": "97eeb6426d62784e7bdc5b4289f3cac42ed9071063bd47f225710ad1e2189f96",
+    "dye/base/typography.css": "7a2feb3c8aa0bec26346fbcf909ac630f7c1f2c416ae414c36c3b209524bd954",
+    "dye/components/project-card.css": "7ffbf13481c6017b9cfcc9ee52ab114f7771f42bcdb19cf899c434752fb6b97f",
+    "dye/components/shared.css": "09ac0b4780d1c5c6015d65c8b9c3b40721e7e803e145a29075c7172e849e17f2",
+    "dye/components/toc.css": "4928937c6e41c63eec007f88966270a1d8fe216dd14242c2f259b9493bb8ff31",
+    "dye/global.css": "780ebbb7f0f2a7a943fd3cb92981a690d1d6741d1e76bbd12a140955b4091c56",
+    "dye/layout/footer.css": "3abc57b2af7bf50a54e9e5460d0574873ec0fe1099675fa04433ea01b98e35f3",
+    "dye/layout/nav.css": "b1784b6d61ba0d790aeb46524accc18324acdf780eb6e7bcd1a4c7f006b21bdd",
+    "dye/layout/status-pill.css": "fe15404662e803b3a90267d117a6c5572aac10fc727fc2440b2f59c7663c877c",
+    "dye/layout/transitions.css": "91dbebaed3643bff2c6ce6311db0fa552103dc8f6c70533b50c6c41dffcfb106",
+    "dye/minimal.css": "5e3032baa9909b2006452f47889854e7dabd74cc4ddb2c1131ac65e2a87dc62f",
+    "dye/pages/404.css": "9370f3130b62b23d3c6f30f340123a1ca1b0edb93a8643b6bcd84219d178a122",
+    "dye/pages/about.css": "719de019b33dda6ef2e9dc01c0128b502a9200bfb166a599dc3ef2b1564ac3a7",
+    "dye/pages/app.css": "b480fc1c0045c88d9cd53d5b73e9dd02b37c464946334e8ebcac147faa610fbc",
+    "dye/pages/blog-post.css": "a35a67e0bc78570e0b82ea52ddc515942246cf2b4c0e3de6a0c19007d007859b",
+    "dye/pages/blogs.css": "0bd3810563a13a914d6ae9284e91639dbf8b62b950a1f369af2d30dcb016313e",
+    "dye/pages/home.css": "5b445f80d718020d787daff5f493377ebb1d46bca3914882363322be125cf55b",
+    "dye/pages/legal.css": "7dd63c42e512155edb8cf35231fc000ba2c06b548461d45a36b985604b890c82",
+    "dye/pages/project-detail.css": "e55fcf15d3167f2e83032778c3e47c31b8a8de6948e2cd251f9398b932971f80",
+    "dye/pages/projects.css": "6101c68bceaf6469a4c289aacddb77d24e99a881111c883bf2fca1cc378c53ec",
+    "trick/toc.js": "f7239b4f38589aaf417e55b6a937d661f463d54f4a2e53463b894b7efb0e731b"
+  },
+  "toolchain": "clean-css 5.6.3 -O2 --inline none | terser terser 5.51.4 --compress --mangle"
+}
